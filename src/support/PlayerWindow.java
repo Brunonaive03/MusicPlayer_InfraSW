@@ -306,8 +306,6 @@ public class PlayerWindow {
         queueList.getColumnModel().getColumn(5).setPreferredWidth(0);
     }
 
-    public int getIndex(){return queueList.getSelectedRow();}
-
     /**
      * Sets the information displayed on the mini-player about the current song. Should be called whenever the
      * currently playing song changes.

@@ -6,7 +6,6 @@ import javazoom.jl.player.FactoryRegistry;
 import support.PlayerWindow;
 import support.Song;
 
-import javax.swing.*;
 import javax.swing.event.MouseInputAdapter;
 import java.awt.*;
 import java.awt.event.ActionListener;
@@ -48,17 +47,22 @@ public class Player {
     //</editor-fold>
 
     //<editor-fold desc="Time integer variables">
-    private int cur_time;
-    private int total_time;
+    private int curTime;
+    private int totalTime;
+
+    private int newTime;
     //</editor-fold>
 
     //<editor-fold desc="Other integer variables">
-    private int index;
     private int count = 0;
     private int currentFrame = 0;
+
+    private int songListSize = 0;
     //</editor-fold>
 
-    private final Lock lock_stuff = new ReentrantLock();
+    private String curID;
+    private int curIndex;
+    private final Lock lockStuff = new ReentrantLock();
 
     //<editor-fold desc="Dynamic arrays used for easly add and remove songs from the player: ">
     private ArrayList<Song> songList = new ArrayList<>();
@@ -72,18 +76,17 @@ public class Player {
     private Song songPlayingNow;
 
     //<editor-fold desc="ActionListener">
-    private final ActionListener buttonListenerPlayNow = e ->
-    {
-        index = window.getIndex();
-        playNow(index);
-    };
-    private final ActionListener buttonListenerRemove = e -> removeSong();
+    private final ActionListener buttonListenerPlayNow = e -> {
 
-    private final ActionListener buttonListenerAddSong = e -> add_songs();
+        curID = window.getSelectedSong();
+        playNow(curID);
+    };
+    private final ActionListener buttonListenerRemove = e -> removeSongs();
+    private final ActionListener buttonListenerAddSong = e -> addSongs();
     private final ActionListener buttonListenerPlayPause = e -> PlayPause();
     private final ActionListener buttonListenerStop = e -> stop();
-    private final ActionListener buttonListenerNext = e -> {};
-    private final ActionListener buttonListenerPrevious = e -> {};
+    private final ActionListener buttonListenerNext = e -> next();
+    private final ActionListener buttonListenerPrevious = e -> previous();
     private final ActionListener buttonListenerShuffle = e -> {};
     private final ActionListener buttonListenerLoop = e -> {};
 
@@ -93,16 +96,19 @@ public class Player {
     private final MouseInputAdapter scrubberMouseInputAdapter = new MouseInputAdapter() {
         @Override
         public void mouseReleased(MouseEvent e) {
+            releasedScrubber();
         }
 
         @Override
         public void mousePressed(MouseEvent e) {
+            pressedScrubber();
         }
 
         @Override
         public void mouseDragged(MouseEvent e) {
         }
     };
+
     //</editor-fold>
 
     public Player()
@@ -172,143 +178,259 @@ public class Player {
 
     //</editor-fold>
 
-    public void add_songs()
-    {
+    public void addSongs() {
         Song added_song;
-        try
-        {
-            lock_stuff.lock();
+        try {
+            lockStuff.lock();
             added_song = window.openFileChooser();
             String [] song_data = added_song.getDisplayInfo();
             songDataList.add(song_data);
             songList.add(added_song);
+            songListSize++;
             renewQueue();
+            //System.out.println(added_song.getUuid()); debug print to see recently added song's ID
+        }
+        catch (IOException | BitstreamException | UnsupportedTagException | InvalidDataException exception){
 
         }
-        catch (IOException | BitstreamException | UnsupportedTagException | InvalidDataException exception){}
-
-        finally {lock_stuff.unlock();}
+        finally {
+            lockStuff.unlock();
+        }
     }
 
-    public void playNow(int idx)
-    {
+    public void removeSongs() {
+        try {
+            String removeID;
+            Song deletedSong;
+            int removeIdx;
+            lockStuff.lock();
+            removeID = window.getSelectedSong();
+            deletedSong = songList.stream().filter(song -> removeID.equals(song.getUuid())).findFirst().orElse(null);
+            removeIdx = songList.indexOf(deletedSong);
+            songList.remove(removeIdx);
+            songDataList.remove(removeIdx);
+            if(removeID.equals(curID)) {
+                stop();
+            }
+            songListSize--;
+            renewQueue();
+        }
+        finally {
+            lockStuff.unlock();
+        }
+    }
+
+    public void playNow(String songID) {
+        // System.out.println(songID); debug print to see ID of song that has just started playing
         count = 0;
         currentFrame = 0;
 
-        if(playingAtTheMoment) {endCurrent = true;}
+        if(playingAtTheMoment) {
+            endCurrent = true;
+        }
 
-        try
-        {
-            lock_stuff.lock();
+        try {
+            lockStuff.lock();
             playingAtTheMoment = true;
-            songPlayingNow = songList.get(idx);
+            songPlayingNow = songList.stream().filter(song -> songID.equals(song.getUuid())).findFirst().orElse(null);
+            curIndex = songList.indexOf(songPlayingNow);
 
             //refresh display
             window.setPlayingSongInfo(songPlayingNow.getTitle(), songPlayingNow.getAlbum(), songPlayingNow.getArtist());
-            int pausedIdx = boolean_to_int(paused);
-            window.setPlayPauseButtonIcon(pausedIdx);
-            window.setEnabledScrubber(playingAtTheMoment); //**
+            int pausedIdx = booleanToInt(paused);
             window.setEnabledPlayPauseButton(playingAtTheMoment);
+            window.setPlayPauseButtonIcon(pausedIdx);
             window.setEnabledStopButton(playingAtTheMoment);
+            window.setEnabledScrubber(playingAtTheMoment);
+            window.setEnabledNextButton(playingAtTheMoment);
+            window.setEnabledPreviousButton(playingAtTheMoment);
+
 
             paused = false;
 
-            try
-            {
+            try {
                 device = FactoryRegistry.systemRegistry().createAudioDevice();
                 device.open(decoder = new Decoder());
                 bitstream = new Bitstream(songPlayingNow.getBufferedInputStream());
                 playing();
             }
-            catch (JavaLayerException | FileNotFoundException e) {}
+            catch (JavaLayerException | FileNotFoundException e) {
+
+            }
         }
-        finally {lock_stuff.unlock();}
+        finally {
+            lockStuff.unlock();
+        }
     }
 
-    public void PlayPause()
-    {
-        paused = !paused; //change state
-        playingAtTheMoment = !paused;
-        int pausedIdx = boolean_to_int(paused);
-        window.setPlayPauseButtonIcon(pausedIdx);
+    public void PlayPause() {
+        try {
+            lockStuff.lock();
+            paused = !paused; //change state
+            playingAtTheMoment = !paused;
+            int pausedIdx = booleanToInt(paused);
+            window.setPlayPauseButtonIcon(pausedIdx);
+        }
+        finally {
+            lockStuff.unlock();
+        }
     }
 
-    public void playing()
-    {
+    public void playing() {
         playingAtTheMoment = true;
-        Thread playingSong = new Thread(()->
-        {
-            while(true)
-            {
-                System.out.println("thread"); //debug print to check if music is still on but paused
-                while (!paused)
-                {
-                    System.out.println("play"); //debug print to check if music is playing
-                    try
-                    {
-                        if (stop || endCurrent) //stop the current from song playing after pressing the PlayNow button again
-                        {
+        Thread playingSong = new Thread(()-> {
+            while(true) {
+                //System.out.println("thread"); debug print to check if music is still on but paused
+                while (!paused) {
+                    //System.out.println("play"); debug print to check if music is playing
+                    try {
+                        if (stop || endCurrent) {  //stop the current from song playing after pressing the PlayNow button again
                             playingAtTheMoment = false;
                             break;
                         }
                         //timestuff:
-                        cur_time = (int) (count * songPlayingNow.getMsPerFrame());
-                        total_time = (int) songPlayingNow.getMsLength();
-                        window.setTime(cur_time, total_time);
+                        curTime = (int) (count * songPlayingNow.getMsPerFrame());
+                        totalTime = (int) songPlayingNow.getMsLength();
+                        window.setTime(curTime, totalTime);
 
-                        if (window.getScrubberValue() < songPlayingNow.getMsLength()) //while song's not ended yet
-                        {playingAtTheMoment = playNextFrame();}
-                        else
-                        {stop();}
+                        if (window.getScrubberValue() < songPlayingNow.getMsLength()) { //while song's not ended yet
+                        playingAtTheMoment = playNextFrame();
+                        }
+                        else {
+                            if (curIndex < songListSize-1){
+                                next();
+                            }
+                            else{
+                                stop();
+                            }
+
+                        }
                         count++;
                     }
-                    catch (JavaLayerException e) {}
+                    catch (JavaLayerException e) {
+
+                    }
                 }
 
-                if(stop || endCurrent)
-                {
+                if(stop || endCurrent) {
                     endCurrent = false;
                     stop = false;
                     paused = false;
                     break;
                 }
             }
-        }
-        );
+        });
         playingSong.start();
     }
 
-    public void renewQueue()
-    {
-        String[][] data_matrix = new String[this.songDataList.size()][7];
-        this.playlist = this.songDataList.toArray(data_matrix);
-        window.setQueueList(this.playlist);
-    }
-
-    public void stop()
-    {
-        count = 0;
-        playingAtTheMoment = false;
-        stop = true;
-        window.resetMiniPlayer();
-    }
-
-    public void removeSong()
-    {
-        try
-        {
-            int removeIdx;
-            lock_stuff.lock();
-            removeIdx = window.getIndex();
-            songDataList.remove(removeIdx);
-            songList.remove(removeIdx);
-
-            if(removeIdx == index) {stop();}
-            else if(removeIdx < index) {index--;}
-            renewQueue();
+    public void renewQueue() {
+        try {
+            lockStuff.lock();
+            String[][] data_matrix = new String[songListSize][7];
+            this.playlist = this.songDataList.toArray(data_matrix);
+            window.setQueueList(this.playlist);
         }
-        finally {lock_stuff.unlock();}
+        finally {
+            lockStuff.unlock();
+        }
     }
 
-    public int boolean_to_int(boolean state){return state ? 0 : 1;}
+    public void stop() {
+        try {
+            lockStuff.lock();
+            count = 0;
+            playingAtTheMoment = false;
+            stop = true;
+            window.resetMiniPlayer();
+        }
+        finally {
+            lockStuff.unlock();
+        }
+    }
+
+    public void next() {
+        try{
+            lockStuff.lock();
+            String nextSongID;
+            if (curIndex != songListSize - 1) {
+                curIndex++;
+                nextSongID = songList.get(curIndex).getUuid();
+                curID = nextSongID;
+                playNow(nextSongID);
+        }
+        }
+        finally {
+            lockStuff.unlock();
+        }
+    }
+
+    public void previous() {
+        try {
+            lockStuff.lock();
+            String previousSongID;
+            if(curIndex != 0) {
+                curIndex--;
+                previousSongID = songList.get(curIndex).getUuid();
+                curID = previousSongID;
+                playNow(previousSongID);
+            }
+        }
+        finally {
+            lockStuff.unlock();
+        }
+    }
+
+    public void pressedScrubber(){
+        try {
+            lockStuff.lock();
+            paused = true;
+        }
+        finally {
+            lockStuff.unlock();
+        }
+
+
+
+    }
+
+    public void releasedScrubber(){
+        try {
+            lockStuff.lock();
+            try {
+                currentFrame = 0;
+                device = FactoryRegistry.systemRegistry().createAudioDevice();
+                device.open(decoder = new Decoder());
+                bitstream = new Bitstream(songPlayingNow.getBufferedInputStream());
+            }
+            catch (JavaLayerException | FileNotFoundException e) {
+            }
+
+            newTime = (int) (window.getScrubberValue() / songPlayingNow.getMsPerFrame());
+            count = newTime;
+
+            window.setTime((int) (count * songPlayingNow.getMsPerFrame()), totalTime);
+
+            try {
+                skipToFrame(newTime);
+
+            } catch (BitstreamException e){
+                System.out.println(e);
+            }
+
+            if(playingAtTheMoment){
+                paused = false;
+            }
+
+        }
+        finally {
+            lockStuff.unlock();
+        }
+
+    }
+
+
+
+    public int booleanToInt(boolean state){
+        return state ? 0 : 1;
+    }
 }
