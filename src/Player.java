@@ -49,19 +49,20 @@ public class Player {
     //<editor-fold desc="Time integer variables">
     private int curTime;
     private int totalTime;
-
     private int newTime;
     //</editor-fold>
 
-    //<editor-fold desc="Other integer variables">
+    //<editor-fold desc="Other variables">
     private int count = 0;
     private int currentFrame = 0;
-
     private int songListSize = 0;
+    private int curIndex; //index of current song in the current reproduction list
+    private String curID;  //Song's ID
     //</editor-fold>
 
-    private String curID;
-    private int curIndex;
+    /**Lock used to apply mutual exclusion
+     * when it is needed to access critical
+     * regionsin the code**/
     private final Lock lockStuff = new ReentrantLock();
 
     //<editor-fold desc="Dynamic arrays used for easly add and remove songs from the player: ">
@@ -95,12 +96,12 @@ public class Player {
     //<editor-fold desc="Mouse">
     private final MouseInputAdapter scrubberMouseInputAdapter = new MouseInputAdapter() {
         @Override
-        public void mouseReleased(MouseEvent e) {
+        public void mouseReleased(MouseEvent e) { //When releasing the Scrubber
             releasedScrubber();
         }
 
         @Override
-        public void mousePressed(MouseEvent e) {
+        public void mousePressed(MouseEvent e) { //When pressing the Scrubber
             pressedScrubber();
         }
 
@@ -205,11 +206,11 @@ public class Player {
             int removeIdx;
             lockStuff.lock();
             removeID = window.getSelectedSong();
-            deletedSong = songList.stream().filter(song -> removeID.equals(song.getUuid())).findFirst().orElse(null);
+            deletedSong = songList.stream().filter(song -> removeID.equals(song.getUuid())).findFirst().orElse(null); //get the Song object by its ID
             removeIdx = songList.indexOf(deletedSong);
             songList.remove(removeIdx);
             songDataList.remove(removeIdx);
-            if(removeID.equals(curID)) {
+            if(removeID.equals(curID)) { //if current playing song is removed, it is removed
                 stop();
             }
             songListSize--;
@@ -225,7 +226,7 @@ public class Player {
         count = 0;
         currentFrame = 0;
 
-        if(playingAtTheMoment) {
+        if(playingAtTheMoment) { //if a Song is playing when the PlayNow button is pressed, stop playing it immediately
             endCurrent = true;
         }
 
@@ -244,7 +245,6 @@ public class Player {
             window.setEnabledScrubber(playingAtTheMoment);
             window.setEnabledNextButton(playingAtTheMoment);
             window.setEnabledPreviousButton(playingAtTheMoment);
-
 
             paused = false;
 
@@ -278,7 +278,7 @@ public class Player {
 
     public void playing() {
         playingAtTheMoment = true;
-        Thread playingSong = new Thread(()-> {
+        Thread playingSong = new Thread(()-> { //the Song's reproduction routine is a process that will be running parallel to the user's other actions
             while(true) {
                 //System.out.println("thread"); debug print to check if music is still on but paused
                 while (!paused) {
@@ -303,7 +303,6 @@ public class Player {
                             else{
                                 stop();
                             }
-
                         }
                         count++;
                     }
@@ -323,7 +322,7 @@ public class Player {
         playingSong.start();
     }
 
-    public void renewQueue() {
+    public void renewQueue() { //refresh the queue every time a Song is added or removed
         try {
             lockStuff.lock();
             String[][] data_matrix = new String[songListSize][7];
@@ -353,7 +352,7 @@ public class Player {
             lockStuff.lock();
             String nextSongID;
             if (curIndex != songListSize - 1) {
-                curIndex++;
+                curIndex++; //go to the next index of the queue if the current one is smaller than the last index
                 nextSongID = songList.get(curIndex).getUuid();
                 curID = nextSongID;
                 playNow(nextSongID);
@@ -369,7 +368,7 @@ public class Player {
             lockStuff.lock();
             String previousSongID;
             if(curIndex != 0) {
-                curIndex--;
+                curIndex--; //go to the previous index of the queue if the current one is bigger than 0
                 previousSongID = songList.get(curIndex).getUuid();
                 curID = previousSongID;
                 playNow(previousSongID);
@@ -383,17 +382,14 @@ public class Player {
     public void pressedScrubber(){
         try {
             lockStuff.lock();
-            paused = true;
+            paused = true; //pause the Song when pressing the Scrubber
         }
         finally {
             lockStuff.unlock();
         }
-
-
-
     }
 
-    public void releasedScrubber(){
+    public void releasedScrubber(){ //restart the Song at the released time in the Scrubber
         try {
             lockStuff.lock();
             try {
@@ -428,9 +424,8 @@ public class Player {
 
     }
 
-
-
-    public int booleanToInt(boolean state){
+    /**convert Boolean value to Int**/
+    public int booleanToInt(boolean state){ 
         return state ? 0 : 1;
     }
 }
