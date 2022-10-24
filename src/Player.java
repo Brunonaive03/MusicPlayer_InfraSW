@@ -503,7 +503,7 @@ public class Player {
 
                     //shuffle the list
                     for (int i = 1; i < songListSize; i++) {
-                        int randomIdx =  (int) (Math.random() * (songListSize - i) + 1);
+                        int randomIdx =  (int) (Math.random() * (songListSize - i) + i);
 
                         shuffleSong = songList.get(randomIdx);
                         songList.set(randomIdx, songList.get(i));
